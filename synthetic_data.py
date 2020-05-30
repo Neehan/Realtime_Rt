@@ -39,9 +39,9 @@ def generate(country_name, num_tests_start, num_tests_end,
 
     def generate_rt_sequence(N=N_days, mean=base_rt, var=0.05, seed=0):
         # Generate rt as a random walk.
-        start = np.random.normal(mean, 8*var)
+        start = np.random.normal(mean, 5*var)
         # Put a small downwards bias
-        steps = np.random.normal(-0.005, var, N_days)
+        steps = np.random.normal(-0.003, var, N_days)
         all_steps = np.concatenate((np.array([start]), steps))
         final_rt = np.clip(np.cumsum(all_steps), lowest_rt, highest_rt)
         return final_rt
@@ -65,8 +65,8 @@ def generate(country_name, num_tests_start, num_tests_end,
             results[7] = country.fd * delta * U
             return results
 
-        y0 = np.array([country.population - 1, 0, 
-                       1, 0, 0, 0, 0, 0])
+        y0 = np.array([country.population - country.initial_infections, 0, 
+                       country.initial_infections, 0, 0, 0, 0, 0])
         return diff_eq, y0
 
     rt = generate_rt_sequence()
@@ -90,10 +90,11 @@ def generate(country_name, num_tests_start, num_tests_end,
 
     num_tests= np.linspace(num_tests_start, num_tests_end, num=N_days).astype(int)
 
-    num_positives = np.random.binomial(num_tests, 
-                                       total_infected / total_eligibles)
+    num_positives = np.random.hypergeometric(ngood = total_infected,
+                                             nbad=total_eligibles,
+                                             nsample=np.minimum(num_tests, total_eligibles))
 
-    return total_infected, rt, num_tests, num_positives
+    return total_infected, total_eligibles, rt, num_tests, num_positives
     
 
 def set_up_parser():
@@ -142,14 +143,15 @@ def set_up_parser():
 
 def main():
     args = set_up_parser()
-    I, rt, num_tests, num_positives = generate(args.country, args.num_tests_start, 
+    I, total_eligibles, rt, num_tests, num_positives = generate(args.country, args.num_tests_start, 
                                                args.num_tests_end, args.num_days)
 
     results_df = pd.DataFrame({
-        'rt': rt[:-1],
-        'total_infected': np.cumsum(I),
-        'total_tests': np.cumsum(num_tests),
-        'total_positives': np.cumsum(num_positives),
+        'R_t': rt[:-1],
+        'I_t': (I),
+        'N_t': (total_eligibles),
+        'T_t': (num_tests),
+        'P_t': (num_positives),
         'pct_positive': 100. * num_positives/num_tests
     })
 
