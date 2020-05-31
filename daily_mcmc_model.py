@@ -22,12 +22,12 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 I_t_mu, I_t_sigma, R_t_mu, R_t_sigma, 
+                 I_t_mu, I_t_sigma, R_t_mu, R_t_sigma,
                  R_t_drift = 0.05, verbose=1):
 
         # Just for identification purposes
         self.region = region
-        
+
         # For the model, we'll only look at the last N
         self.num_positive = num_positive
         self.num_tests = num_tests
@@ -58,12 +58,12 @@ class MCMCModel(object):
             I_t_1 = pm.Poisson('I_t_1', mu=I_t_1_mu)
 
             # From here, find the expected number of positive cases
-            N_t_1 = max(100_000, self.I_t_mu * 10.) # For now, assume random tests among a large set.
-            positives = HyperGeometric(name='positives', 
+            N_t_1 = 100_000 #, self.I_t_mu * 10.) # For now, assume random tests among a large set.
+            positives = HyperGeometric(name='positives',
                                        N = N_t_1, n=self.num_tests, k=I_t_1,
                                        observed=self.num_positive)
 
-            
+
             if self.verbose:
                 print('Built model, sampling...')
 
@@ -84,7 +84,7 @@ def create_and_run_models(args):
     verbose = args.verbose
     data = pd.read_csv(args.infile)
     data = data[data.P_t >= args.cutoff]
-    # Now, from the start date, we will project forward and 
+    # Now, from the start date, we will project forward and
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
     I_t_mu, I_t_sigma = args.cutoff, 5 # Change this later
@@ -97,13 +97,13 @@ def create_and_run_models(args):
     for i in range(1, n_days):
         day = data.iloc[i]
         model = MCMCModel(args.infile, num_positive=day.P_t, num_tests=day.T_t,
-                          I_t_mu=I_t_mu, I_t_sigma=I_t_sigma, 
+                          I_t_mu=I_t_mu, I_t_sigma=I_t_sigma,
                           R_t_mu=R_t_mu, R_t_sigma=R_t_sigma).run(
                               chains=args.chains,
                               tune=args.tune,
                               draws=args.draw
                           )
-        
+
         I_t_1 = model.trace['I_t_1']
         R_t_1 = model.trace['R_t_1']
 
@@ -164,32 +164,32 @@ def parse_args():
     )
 
     parser.add_argument(
-        '--cutoff', type=int, 
-        help='Minimum number of positive tests from which to start inference (default: %(default)d)', 
+        '--cutoff', type=int,
+        help='Minimum number of positive tests from which to start inference (default: %(default)d)',
         nargs='?', default=25
     )
 
     parser.add_argument(
-        '--window', type=int, 
-        help='Number of days to compute R_t for (default: %(default)d)', 
+        '--window', type=int,
+        help='Number of days to compute R_t for (default: %(default)d)',
         nargs='?', default=-1
     )
 
     parser.add_argument(
-        '--chains', type=int, 
-        help='Number of chains to use in the MCMC (default: %(default)d)', 
+        '--chains', type=int,
+        help='Number of chains to use in the MCMC (default: %(default)d)',
         nargs='?', default=1
     )
 
     parser.add_argument(
-        '--tune', type=int, 
-        help='Number of steps to tune MCMC for (default: %(default)d)', 
+        '--tune', type=int,
+        help='Number of steps to tune MCMC for (default: %(default)d)',
         nargs='?', default=500
     )
 
     parser.add_argument(
-        '--draw', type=int, 
-        help='Number of samples to draw using MCMC (default: %(default)d)', 
+        '--draw', type=int,
+        help='Number of samples to draw using MCMC (default: %(default)d)',
         nargs='?', default=500
     )
 
