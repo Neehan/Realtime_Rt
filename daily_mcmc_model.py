@@ -120,8 +120,6 @@ def create_and_run_models(args):
         'R_t_std': np.array(R_t_sigma),
         'I_t_mean': np.array(I_t_mu),
         'I_t_std': np.array(I_t_sigma),
-        'positive_mean': np.array(positive_mean),
-        'positive_std': np.array(positive_std),
     })
 
     results.index = data.index
