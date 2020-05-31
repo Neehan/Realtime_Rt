@@ -50,7 +50,7 @@ class MCMCModel(object):
             R_t_1 = pm.Normal('R_t_1', mu=R_t, sigma=self.R_t_drift)
 
             # Now, take the new I_t_1
-            serial_interval = 7.5
+            serial_interval = 5.2
             gamma = 1/serial_interval
             I_t = pm.Normal('I_t', mu=self.I_t_mu, sigma=self.I_t_sigma)
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
