@@ -10,6 +10,8 @@ numpy = "*"
 pymc3 = "*"
 pandas = "*"
 seaborn = "*"
+theano = "*"
+arviz = "*"
 
 [requires]
 python_version = "3.8"
