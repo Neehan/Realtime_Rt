@@ -22,7 +22,7 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 I_t_mu, R_t_mu, R_t_sigma,
+                 dI_t_mu, R_t_mu, R_t_sigma,
                  R_t_drift = 0.05, verbose=1):
 
         # Just for identification purposes
@@ -31,7 +31,7 @@ class MCMCModel(object):
         # For the model, we'll only look at the last N
         self.num_positive = num_positive
         self.num_tests = num_tests
-        self.I_t_mu = I_t_mu
+        self.dI_t_mu = dI_t_mu
         self.R_t_mu = R_t_mu
         self.R_t_sigma = R_t_sigma
         self.R_t_drift = R_t_drift
@@ -52,16 +52,16 @@ class MCMCModel(object):
             # Now, take the new I_t_1
             serial_interval = 5.2
             gamma = 1/serial_interval
-            I_t = pm.Poisson('I_t', mu=self.I_t_mu)
+            dI_t = pm.Poisson('dI_t', mu=self.dI_t_mu)
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
             # Restrict I_t to be nonzero
-            I_t_1_mu = pm.math.maximum(0.1, I_t * exp_rate)
-            I_t_1 = pm.Poisson('I_t_1', mu=I_t_1_mu)
+            dI_t_1_mu = pm.math.maximum(0.1, dI_t * exp_rate)
+            dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
             N_t_1 = 100_000 #, self.I_t_mu * 10.) # For now, assume random tests among a large set.
             positives = HyperGeometric(name='positives',
-                                       N = N_t_1, n=self.num_tests, k=I_t_1,
+                                       N = N_t_1, n=self.num_tests, k=dI_t_1,
                                        observed=self.num_positive)
 
 
@@ -94,16 +94,18 @@ def create_and_run_models(args):
     I_t_mus, I_t_lows, I_t_highs = [I_t_mu], [-np.inf], [np.inf]
     for i in range(1, n_days):
         day = data.iloc[i]
-        model = MCMCModel(args.infile, num_positive=day.P_t, num_tests=day.T_t,
-                          I_t_mu=I_t_mu,
-                          R_t_mu=R_t_mu, R_t_sigma=R_t_sigma).run(
+        model = MCMCModel(args.infile, 
+                          num_positive=day.P_t, num_tests=day.T_t,
+                          dI_t_mu=I_t_mu,
+                          R_t_mu=R_t_mu, R_t_sigma=R_t_sigma,
+                          verbose=args.verbose).run(
                               chains=args.chains,
                               tune=args.tune,
                               draws=args.draw,
                               cores=args.cores
                           )
 
-        I_t_1 = model.trace['I_t_1']
+        I_t_1 = model.trace['dI_t_1']
         R_t_1 = model.trace['R_t_1']
 
         R_t_mu = np.mean(R_t_1)
@@ -144,7 +146,7 @@ def parse_args():
     parser.add_argument(
         '--infile',
         type=str,
-        default='synthetic_data/bd.csv',
+        default='synthetic_data/new_testing/bd.csv',
         help='File from which to read P_t and T_t (default: %(default)s)',
         nargs='?',
     )
