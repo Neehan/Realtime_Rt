@@ -22,7 +22,7 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 I_t_mu, I_t_sigma, R_t_mu, R_t_sigma,
+                 I_t_mu, R_t_mu, R_t_sigma,
                  R_t_drift = 0.05, verbose=1):
 
         # Just for identification purposes
@@ -32,7 +32,6 @@ class MCMCModel(object):
         self.num_positive = num_positive
         self.num_tests = num_tests
         self.I_t_mu = I_t_mu
-        self.I_t_sigma = I_t_sigma
         self.R_t_mu = R_t_mu
         self.R_t_sigma = R_t_sigma
         self.R_t_drift = R_t_drift
@@ -42,18 +41,20 @@ class MCMCModel(object):
         # Where we store the results
         self.trace = None
 
-    def run(self, chains=1, tune=3_000, draws=500, target_accept=.9):
+    def run(self, chains=1, tune=3_000, draws=500, target_accept=.9, cores=1):
 
         with pm.Model() as model:
             # Figure out the new R_t
             R_t = pm.Normal('R_t', mu=self.R_t_mu, sigma=self.R_t_sigma)
-            R_t_1 = pm.Normal('R_t_1', mu=R_t, sigma=self.R_t_drift)
+            R_t_drift = pm.Normal('R_t_drift', mu=0, sigma=self.R_t_drift)
+            R_t_1 = pm.Deterministic('R_t_1', R_t + R_t_drift)
 
             # Now, take the new I_t_1
             serial_interval = 5.2
             gamma = 1/serial_interval
-            I_t = pm.Normal('I_t', mu=self.I_t_mu, sigma=self.I_t_sigma)
+            I_t = pm.Poisson('I_t', mu=self.I_t_mu)
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
+            # Restrict I_t to be nonzero
             I_t_1_mu = pm.math.maximum(0.1, I_t * exp_rate)
             I_t_1 = pm.Poisson('I_t_1', mu=I_t_1_mu)
 
@@ -74,6 +75,7 @@ class MCMCModel(object):
                 tune=tune,
                 draws=draws,
                 nuts={"target_accept": target_accept},
+                cores=cores
             )
             return self
 
@@ -85,44 +87,51 @@ def create_and_run_models(args):
     # Now, from the start date, we will project forward and
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
-    I_t_mu, I_t_sigma = args.cutoff, 5 # Change this later
+    I_t_mu = args.cutoff # Change this later
     n_days = len(data) if args.window == -1 else args.window
 
-    R_t_mus, R_t_sigmas = [R_t_mu], [R_t_sigma]
-    I_t_mus, I_t_sigmas = [I_t_mu], [I_t_sigma]
-    positive_mean = [args.cutoff]
-    positive_std = [5.]
+    R_t_mus, R_t_lows, R_t_highs = [R_t_mu], [R_t_mu - R_t_sigma * 1.96], [R_t_mu + R_t_sigma * 1.96]
+    I_t_mus, I_t_lows, I_t_highs = [I_t_mu], [-np.inf], [np.inf]
     for i in range(1, n_days):
         day = data.iloc[i]
         model = MCMCModel(args.infile, num_positive=day.P_t, num_tests=day.T_t,
-                          I_t_mu=I_t_mu, I_t_sigma=I_t_sigma,
+                          I_t_mu=I_t_mu,
                           R_t_mu=R_t_mu, R_t_sigma=R_t_sigma).run(
                               chains=args.chains,
                               tune=args.tune,
-                              draws=args.draw
+                              draws=args.draw,
+                              cores=args.cores
                           )
 
         I_t_1 = model.trace['I_t_1']
         R_t_1 = model.trace['R_t_1']
 
-        R_t_mu, R_t_sigma = np.mean(R_t_1), np.std(R_t_1)
-        I_t_mu, I_t_sigma = np.mean(I_t_1), np.std(I_t_1)
+        R_t_mu = np.mean(R_t_1)
+        R_t_bounds = az.hdi(R_t_1, 0.95)
+        R_t_low, R_t_high = R_t_bounds[0], R_t_bounds[1]
+        I_t_mu = np.mean(I_t_1)
+        I_t_bounds = az.hdi(I_t_1, 0.95)
+        I_t_low, I_t_high = I_t_bounds[0], I_t_bounds[1]
 
         if verbose:
             print(i)
-            print(f'R_t: {(R_t_mu, R_t_sigma)}')
-            print(f'I_t: {(I_t_mu, I_t_sigma)}')
+            print(f'R_t: {(R_t_mu, R_t_low, R_t_high)}')
+            print(f'I_t: {(I_t_mu, I_t_low, I_t_high)}')
 
         R_t_mus.append(R_t_mu)
-        R_t_sigmas.append(R_t_sigma)
+        R_t_highs.append(R_t_high)
+        R_t_lows.append(R_t_low)
         I_t_mus.append(I_t_mu)
-        I_t_sigmas.append(I_t_sigma)
+        I_t_highs.append(I_t_high)
+        I_t_lows.append(I_t_low)
 
     results = pd.DataFrame({
         'R_t_mean': np.array(R_t_mus),
-        'R_t_std': np.array(R_t_sigmas),
+        'R_t_low': np.array(R_t_lows),
+        'R_t_high': np.array(R_t_highs),
         'I_t_mean': np.array(I_t_mus),
-        'I_t_std': np.array(I_t_sigmas),
+        'I_t_low': np.array(I_t_lows),
+        'I_t_high': np.array(I_t_highs),
     })
 
     results.index = data.index[:n_days]
@@ -145,6 +154,14 @@ def parse_args():
         type=int,
         default=1,
         help='Verbosity level (default: %(default)d)',
+        nargs='?',
+    )
+
+    parser.add_argument(
+        '--cores',
+        type=int,
+        default=1,
+        help='Number of cores to use in compute (default: %(default)d)',
         nargs='?',
     )
 
