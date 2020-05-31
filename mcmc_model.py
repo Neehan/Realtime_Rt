@@ -63,6 +63,29 @@ class MCMCModel(object):
             I_t = pm.math.maximum(.1, I_t_mu)
             cases = pm.Poisson('cases', mu=I_t, shape=self.num_positive.shape)
 
+            # Random walk magnitude
+            step_size = pm.HalfNormal('step_size', sigma=.03)
+
+            # Theta random walk
+            theta_raw_init = pm.Normal('theta_raw_init', 0.1, 0.1)
+            theta_raw_steps = pm.Normal('theta_raw_steps', shape=len(self.num_positive)-2) * step_size
+            theta_raw = tt.concatenate([[0., theta_raw_init], theta_raw_steps])
+            theta = pm.Deterministic('theta', theta_raw.cumsum())
+            theta_cumulative = pm.Deterministic('theta_c', theta.cumsum())
+
+            # Let the serial interval be a random variable and calculate r_t
+            serial_interval = pm.Gamma('serial_interval', alpha=6, beta=1.5)
+            gamma = 1.0 / serial_interval
+            r_t = pm.Deterministic('r_t', theta/gamma + 1)
+
+            # Up until here is fine.
+            N_t = 100_000 * np.ones_like(self.num_positive) # Some large numbers, think of them as candidates
+            
+            I_t_mu = self.I_0 * pm.math.exp(theta_cumulative)
+            # Ensure cases stay above zero for poisson
+            I_t = pm.math.maximum(.1, I_t_mu)
+            cases = pm.Poisson('cases', mu=I_t, shape=self.num_positive.shape)
+
             
             observed = self.num_positive
             # positives = HyperGeometric('positives', 

@@ -64,10 +64,8 @@ class MCMCModel(object):
                                        observed=self.num_positive)
 
 
-            if self.verbose:
-                print('Built model, sampling...')
-
             if self.verbose > 1:
+                print('Built model, sampling...')
                 for RV in model.basic_RVs:
                     print(RV.name, RV.logp(model.test_point))
 
@@ -111,6 +109,7 @@ def create_and_run_models(args):
         I_t_mu, I_t_sigma = np.mean(I_t_1), np.std(I_t_1)
 
         if verbose:
+            print(i)
             print(f'R_t: {(R_t_mu, R_t_sigma)}')
             print(f'I_t: {(I_t_mu, I_t_sigma)}')
 
@@ -120,10 +119,10 @@ def create_and_run_models(args):
         I_t_sigmas.append(I_t_sigma)
 
     results = pd.DataFrame({
-        'R_t_mean': np.array(R_t_mu),
-        'R_t_std': np.array(R_t_sigma),
-        'I_t_mean': np.array(I_t_mu),
-        'I_t_std': np.array(I_t_sigma),
+        'R_t_mean': np.array(R_t_mus),
+        'R_t_std': np.array(R_t_sigmas),
+        'I_t_mean': np.array(I_t_mus),
+        'I_t_std': np.array(I_t_sigmas),
     })
 
     results.index = data.index
