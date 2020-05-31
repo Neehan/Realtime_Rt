@@ -125,7 +125,7 @@ def create_and_run_models(args):
         'I_t_std': np.array(I_t_sigmas),
     })
 
-    results.index = data.index
+    results.index = data.index.iloc[:n_days]
     return results
 
 
