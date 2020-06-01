@@ -22,7 +22,7 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 dI_t_mu, R_t_mu, R_t_sigma,
+                 dI_t_mu, R_t_mu, R_t_sigma, N_t, use_real_nt=False,
                  R_t_drift = 0.05, verbose=1):
 
         # Just for identification purposes
@@ -35,6 +35,7 @@ class MCMCModel(object):
         self.R_t_mu = R_t_mu
         self.R_t_sigma = R_t_sigma
         self.R_t_drift = R_t_drift
+        self.N_t = N_t if use_real_nt else -1
 
         self.verbose = verbose
 
@@ -59,7 +60,7 @@ class MCMCModel(object):
             dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
-            N_t_1 = 100_000 #, self.I_t_mu * 10.) # For now, assume random tests among a large set.
+            N_t_1 = 100_000 if self.N_t == -1 else self.N_t # For now, assume random tests among a large set.
             positives = HyperGeometric(name='positives',
                                        N = N_t_1, n=self.num_tests, k=dI_t_1,
                                        observed=self.num_positive)
@@ -94,9 +95,9 @@ def create_and_run_models(args):
     I_t_mus, I_t_lows, I_t_highs = [I_t_mu], [-np.inf], [np.inf]
     for i in range(1, n_days):
         day = data.iloc[i]
-        model = MCMCModel(args.infile, 
+        model = MCMCModel(args.infile, R_t_drift=args.R_t_drift,
                           num_positive=day.P_t, num_tests=day.T_t,
-                          dI_t_mu=I_t_mu,
+                          dI_t_mu=I_t_mu, N_t=day.N_t, use_real_nt=args.real_nt,
                           R_t_mu=R_t_mu, R_t_sigma=R_t_sigma,
                           verbose=args.verbose).run(
                               chains=args.chains,
@@ -172,6 +173,20 @@ def parse_args():
         type=float,
         default=3.5,
         help='Initial mean for Rt on day 0.  (default: %(default)f)'
+    )
+
+    parser.add_argument(
+        '--real_nt',
+        type=bool,
+        default=False,
+        help='Use the real N(t) value for synthetic data. (default: False)'
+    )
+
+    parser.add_argument(
+        '--R_t_drift',
+        type=float,
+        default=0.05,
+        help='Variance of drifting R_t (default: %(default)f)'
     )
 
     parser.add_argument(

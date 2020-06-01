@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
+from scipy.signal import savgol_filter
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,7 +20,7 @@ def load_data():
 
 def generate(country_name, num_tests_start, num_tests_end, 
              N_days = 180, lowest_rt=0.01, highest_rt=12,
-             base_rt=2.2):
+             base_rt=2.2, rt_var=0.05, smooth=False):
     # Setting time to run until
     end_time = N_days
 
@@ -37,11 +38,11 @@ def generate(country_name, num_tests_start, num_tests_end,
     # rt constants
     beta_func = lambda country, rt: (gamma * rt / country.population)
 
-    def generate_rt_sequence(N=N_days, mean=base_rt, var=0.05, seed=0):
+    def generate_rt_sequence(N=N_days, mean=base_rt, var=rt_var, seed=0):
         # Generate rt as a random walk.
         start = np.random.normal(mean, 5*var)
         # Put a small downwards bias
-        steps = np.random.normal(-0.003, var, N_days)
+        steps = np.random.normal(-0.00, var, N_days)
         all_steps = np.concatenate((np.array([start]), steps))
         final_rt = np.clip(np.cumsum(all_steps), lowest_rt, highest_rt)
         return final_rt
@@ -70,6 +71,7 @@ def generate(country_name, num_tests_start, num_tests_end,
         return diff_eq, y0
 
     rt = generate_rt_sequence()
+    if smooth: rt = savgol_filter(rt, window_length=7, polyorder=2)
     diff_eqs, initial_values = diff_eqs_for_country(country, rt_sequence=rt)
     ivp_solution = solve_ivp(fun=diff_eqs, y0=initial_values, vectorized=True,
                              t_span=(0, end_time), t_eval=np.arange(end_time))
@@ -97,7 +99,7 @@ def generate(country_name, num_tests_start, num_tests_end,
                                              nbad=total_eligibles,
                                              nsample=np.minimum(num_tests, total_eligibles))
 
-    return total_infected, total_eligibles, rt, num_tests, num_positives
+    return total_infected, total_eligibles, rt, num_tests, num_positives, new_cases
     
 
 def set_up_parser():
@@ -115,6 +117,8 @@ def set_up_parser():
         help='Number of days to generate data with (default: %(default)d)', 
         nargs='?', default=180
     )
+
+    parser.add_argument('--smooth', action='store_true', help='Smooth the Rt curve.')
 
     parser.add_argument(
         '--num_tests_start', type=int, 
@@ -135,6 +139,13 @@ def set_up_parser():
     )
 
     parser.add_argument(
+        '--rt_var',
+        type=float,
+        default=0.05,
+        help='Variance of drifting R_t (default: %(default)f)'
+    )
+
+    parser.add_argument(
         '--outfile',
         type=str,
         help='Output file to save data to. Format should be <country>_<last date of observation>.csv (default: %(default)s)',
@@ -146,8 +157,9 @@ def set_up_parser():
 
 def main():
     args = set_up_parser()
-    I, total_eligibles, rt, num_tests, num_positives = generate(args.country, args.num_tests_start, 
-                                               args.num_tests_end, args.num_days)
+    I, total_eligibles, rt, num_tests, num_positives, new_cases = generate(args.country, args.num_tests_start, 
+                                                                           args.num_tests_end, args.num_days, 
+                                                                           rt_var=args.rt_var, smooth=args.smooth)
 
     results_df = pd.DataFrame({
         'R_t': rt[:-1],
@@ -155,7 +167,8 @@ def main():
         'N_t': (total_eligibles),
         'T_t': (num_tests),
         'P_t': (num_positives),
-        'pct_positive': 100. * num_positives/num_tests
+        'pct_positive': 100. * num_positives/num_tests,
+        'Cases': new_cases,
     })
 
     results_df.to_csv(args.outfile)
