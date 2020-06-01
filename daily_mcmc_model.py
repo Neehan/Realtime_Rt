@@ -85,7 +85,7 @@ def create_and_run_models(args):
     verbose = args.verbose
     data = pd.read_csv(args.infile)
     data_start = data[data.P_t >= args.cutoff].index[0]
-    data = data.loc[index:]
+    data = data.loc[data_start:]
     # Now, from the start date, we will project forward and
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
