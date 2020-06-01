@@ -24,7 +24,7 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 dI_t_mu, R_t_mu, R_t_sigma, N_t, use_real_nt=False,
+                 R_log_I_mu, R_log_I_cov, N_t, use_real_nt=False,
                  R_t_drift = 0.05, verbose=1):
 
         # Just for identification purposes
@@ -33,9 +33,8 @@ class MCMCModel(object):
         # For the model, we'll only look at the last N
         self.num_positive = num_positive
         self.num_tests = num_tests
-        self.dI_t_mu = dI_t_mu
-        self.R_t_mu = R_t_mu
-        self.R_t_sigma = R_t_sigma
+        self.R_log_dI_mu = R_log_I_mu
+        self.R_log_dI_cov = R_log_I_cov
         self.R_t_drift = R_t_drift
         self.N_t = N_t if use_real_nt else -1
 
@@ -47,8 +46,12 @@ class MCMCModel(object):
     def run(self, chains=1, tune=3_000, draws=500, target_accept=.9, cores=1):
 
         with pm.Model() as model:
-            # Figure out the new R_t
-            R_t = pm.Normal('R_t', mu=self.R_t_mu, sigma=self.R_t_sigma)
+            # Figure out the new R_t, log I_t
+            R_log_I_t = pm.MvNormal('R_log_I_t', 
+                                    mu=self.R_log_dI_mu, 
+                                    cov=self.R_log_dI_cov,
+                                    shape=2)
+            R_t = pm.Deterministic('R_t', R_log_I_t[0])
             R_t_drift = pm.Normal('R_t_drift', mu=0, sigma=self.R_t_drift)
             R_t_1 = pm.Deterministic('R_t_1', R_t + R_t_drift)
 
@@ -56,7 +59,8 @@ class MCMCModel(object):
             # Effective serial_interval is basically 9, from empirical tests.
             serial_interval = 9.
             gamma = 1/serial_interval
-            dI_t = pm.Poisson('dI_t', mu=self.dI_t_mu)
+            log_dI_t = pm.Deterministic('log_dI_t', R_log_I_t[1])
+            dI_t = pm.Deterministic('dI_t', pm.math.exp(log_dI_t))
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
             # Restrict I_t to be nonzero
             dI_t_1_mu = pm.math.minimum(pm.math.maximum(0.1, dI_t * exp_rate), self.num_positive)
@@ -94,16 +98,21 @@ def create_and_run_models(args):
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
     I_t_mu = data.iloc[0].P_t
+    log_I_t_mu = np.log(I_t_mu)
     n_days = len(data) if args.window == -1 else args.window
 
     R_t_mus, R_t_lows, R_t_highs = [R_t_mu], [R_t_mu - R_t_sigma * 1.96], [R_t_mu + R_t_sigma * 1.96]
     I_t_mus, I_t_lows, I_t_highs = [I_t_mu], [-np.inf], [np.inf]
+    # create the joint distribution of (R, I)
+    R_log_I_mu = np.array([R_t_mu, log_I_t_mu])
+    R_log_I_cov = np.array([[R_t_sigma, 0], 
+                            [0, R_t_sigma]]) # Start with even
     for i in range(1, n_days):
         day = data.iloc[i]
         model = MCMCModel(args.infile, R_t_drift=args.R_t_drift,
                           num_positive=day.P_t, num_tests=day.T_t,
-                          dI_t_mu=I_t_mu, N_t=day.N_t, use_real_nt=args.real_nt,
-                          R_t_mu=R_t_mu, R_t_sigma=R_t_sigma,
+                          N_t=day.N_t, use_real_nt=args.real_nt,
+                          R_log_I_mu=R_log_I_mu, R_log_I_cov=R_log_I_cov,
                           verbose=args.verbose).run(
                               chains=args.chains,
                               tune=args.tune,
@@ -111,15 +120,18 @@ def create_and_run_models(args):
                               cores=args.cores
                           )
 
-        I_t_1 = model.trace['dI_t_1']
+        I_t_1 = model.trace['dI_t_1']        
+        log_I_t_1 = np.log(I_t_1)
         R_t_1 = model.trace['R_t_1']
 
-        R_t_mu = np.mean(R_t_1)
-        R_t_sigma = np.std(R_t_1)
-        I_t_mu = np.mean(I_t_1)
+        R_log_I_t = np.stack((R_t_1, log_I_t_1))
+        R_log_I_mu = np.mean(R_log_I_t, axis=1)
+        R_log_I_cov = np.cov(R_log_I_t)
 
+        R_t_mu = np.mean(R_t_1)
         R_t_bounds = az.hdi(R_t_1, 0.95)
         R_t_low, R_t_high = R_t_bounds[0], R_t_bounds[1]
+        I_t_mu = np.mean(I_t_1)
         I_t_bounds = az.hdi(I_t_1, 0.95)
         I_t_low, I_t_high = I_t_bounds[0], I_t_bounds[1]
 
