@@ -26,7 +26,8 @@ class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
                  last_tests, last_positives,
                  R_log_I_mu, R_log_I_cov, N_t, N_t_1, use_real_nt=False,
-                 R_t_drift = 0.05, verbose=1, extra_evidence=True):
+                 R_t_drift = 0.05, verbose=1, 
+                 extra_evidence=True, approx_poisson=True):
 
         # Just for identification purposes
         self.region = region
@@ -40,7 +41,8 @@ class MCMCModel(object):
         self.R_t_drift = R_t_drift
         self.N_t = N_t if use_real_nt else -1
         self.N_t_1 = N_t_1 if use_real_nt else -1   
-        self.extra_evidence = extra_evidence     
+        self.extra_evidence = extra_evidence
+        self.approx_poisson = approx_poisson     
 
         self.verbose = verbose
 
@@ -68,7 +70,12 @@ class MCMCModel(object):
             exp_rate = pm.math.exp((R_t_1 - 1) * gamma)
             # Restrict I_t to be nonzero
             dI_t_1_mu = pm.math.maximum(0.1, dI_t * exp_rate)
-            dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
+            # For large enough mu, Poisson(mu) \approx Normal(mu, \sqrt mu)
+            if self.approx_poisson:
+                dI_t_1 = pm.Normal('dI_t_1', mu=dI_t_1_mu, 
+                                             sigma=pm.math.sqrt(dI_t_1_mu))
+            else:
+                dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
             N_t_1 = 100_000 if self.N_t_1 == -1 else self.N_t_1 # For now, assume random tests among a large set.
@@ -89,14 +96,24 @@ class MCMCModel(object):
                 print(model.test_point)
                 for RV in model.basic_RVs:
                     print(RV.name, RV.logp(model.test_point))
+                model.check_test_point()
 
-            self.trace = pm.sample(
-                chains=chains,
-                tune=tune,
-                draws=draws,
-                nuts={"target_accept": target_accept},
-                cores=cores
-            )
+            if not self.approx_poisson:
+                self.trace = pm.sample(
+                    chains=chains,
+                    tune=tune,
+                    draws=draws,
+                    nuts={"target_accept": target_accept},
+                    cores=cores
+                )
+            else:
+                self.trace = pm.sample(
+                    chains=chains,
+                    tune=tune,
+                    draws=draws,
+                    target_accept=target_accept,
+                    cores=cores
+                )
             return self
 
 
@@ -219,9 +236,21 @@ def parse_args():
 
     parser.add_argument(
         '--real_nt',
-        type=bool,
-        default=False,
+        action='store_true',
         help='Use the real N(t) value for synthetic data. (default: False)'
+    )
+
+    parser.add_argument(
+        '--approx_poisson',
+        action='store_true',
+        help='Use a Gaussian to approximate Poisson dists.'
+    )
+
+    parser.add_argument(
+        '--no_extra_evidence',
+        action='store_true',
+        help='Stop using yesterday\'s data to condition the prior.'
+        'Use when the confidence in the posterior distribution shape is low.'
     )
 
     parser.add_argument(
