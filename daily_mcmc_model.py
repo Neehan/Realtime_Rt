@@ -59,7 +59,7 @@ class MCMCModel(object):
             dI_t = pm.Poisson('dI_t', mu=self.dI_t_mu)
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
             # Restrict I_t to be nonzero
-            dI_t_1_mu = pm.math.maximum(0.1, dI_t * exp_rate)
+            dI_t_1_mu = pm.math.minimum(pm.math.maximum(0.1, dI_t * exp_rate), self.num_positive)
             dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
@@ -71,6 +71,7 @@ class MCMCModel(object):
 
             if self.verbose > 2:
                 print('Built model, sampling...')
+                print(model.test_point)
                 for RV in model.basic_RVs:
                     print(RV.name, RV.logp(model.test_point))
 
@@ -92,7 +93,7 @@ def create_and_run_models(args):
     # Now, from the start date, we will project forward and
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
-    I_t_mu = args.cutoff # Change this later
+    I_t_mu = data.iloc[0].P_t
     n_days = len(data) if args.window == -1 else args.window
 
     R_t_mus, R_t_lows, R_t_highs = [R_t_mu], [R_t_mu - R_t_sigma * 1.96], [R_t_mu + R_t_sigma * 1.96]
