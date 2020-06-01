@@ -24,8 +24,9 @@ from hypergeom import HyperGeometric
 
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
-                 R_log_I_mu, R_log_I_cov, N_t, use_real_nt=False,
-                 R_t_drift = 0.05, verbose=1):
+                 last_tests, last_positives,
+                 R_log_I_mu, R_log_I_cov, N_t, N_t_1, use_real_nt=False,
+                 R_t_drift = 0.05, verbose=1, extra_evidence=True):
 
         # Just for identification purposes
         self.region = region
@@ -33,10 +34,13 @@ class MCMCModel(object):
         # For the model, we'll only look at the last N
         self.num_positive = num_positive
         self.num_tests = num_tests
+        self.last_tests, self.last_positives = last_tests, last_positives
         self.R_log_dI_mu = R_log_I_mu
         self.R_log_dI_cov = R_log_I_cov
         self.R_t_drift = R_t_drift
         self.N_t = N_t if use_real_nt else -1
+        self.N_t_1 = N_t_1 if use_real_nt else -1   
+        self.extra_evidence = extra_evidence     
 
         self.verbose = verbose
 
@@ -67,10 +71,17 @@ class MCMCModel(object):
             dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
-            N_t_1 = 100_000 if self.N_t == -1 else self.N_t # For now, assume random tests among a large set.
+            N_t_1 = 100_000 if self.N_t_1 == -1 else self.N_t_1 # For now, assume random tests among a large set.
             positives = HyperGeometric(name='positives',
                                        N = N_t_1, n=self.num_tests, k=dI_t_1,
                                        observed=self.num_positive)
+
+            if self.extra_evidence:
+                # Add this extra observation
+                N_t = 100_000 if self.N_t == -1 else self.N_t # For now, assume random tests among a large set.
+                yesterday_positives = HyperGeometric(name='yesterday_positives',
+                                                    N = N_t, n=self.last_tests, k=dI_t,
+                                                    observed=self.last_positives)
 
 
             if self.verbose > 2:
@@ -109,9 +120,13 @@ def create_and_run_models(args):
                             [0, R_t_sigma]]) # Start with even
     for i in range(1, n_days):
         day = data.iloc[i]
+        yesterday = data.iloc[i-1]
+        last_tests, last_positives = yesterday.T_t, yesterday.P_t
         model = MCMCModel(args.infile, R_t_drift=args.R_t_drift,
                           num_positive=day.P_t, num_tests=day.T_t,
-                          N_t=day.N_t, use_real_nt=args.real_nt,
+                          last_tests=last_tests, last_positives=last_positives,
+                          N_t_1=day.N_t, N_t=yesterday.N_t, 
+                          use_real_nt=args.real_nt,
                           R_log_I_mu=R_log_I_mu, R_log_I_cov=R_log_I_cov,
                           verbose=args.verbose).run(
                               chains=args.chains,
@@ -120,6 +135,7 @@ def create_and_run_models(args):
                               cores=args.cores
                           )
 
+        I_t = model.trace['dI_t']
         I_t_1 = model.trace['dI_t_1']        
         log_I_t_1 = np.log(I_t_1)
         R_t_1 = model.trace['R_t_1']
@@ -142,6 +158,10 @@ def create_and_run_models(args):
             if verbose > 1:
                 print(f'R_t_sigma: {(np.std(R_t_1))}')
                 print('Skew, kurtosis: ', skew(R_t_1), kurtosis(R_t_1))
+            if verbose > 5:
+                print(f'Sample R_t: {R_t_1[:10]}')
+                print(f'Sample I_t: {I_t[:10]}')
+                print(f'Sample I_t_1: {I_t_1[:10]}')
 
         R_t_mus.append(R_t_mu)
         R_t_highs.append(R_t_high)
