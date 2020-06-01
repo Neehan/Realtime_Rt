@@ -42,7 +42,7 @@ def generate(country_name, num_tests_start, num_tests_end,
         # Generate rt as a random walk.
         start = np.random.normal(mean, 5*var)
         # Put a small downwards bias
-        steps = np.random.normal(-0.00, var, N_days)
+        steps = np.random.normal(-0.003, var, N_days)
         all_steps = np.concatenate((np.array([start]), steps))
         final_rt = np.clip(np.cumsum(all_steps), lowest_rt, highest_rt)
         return final_rt
@@ -86,20 +86,20 @@ def generate(country_name, num_tests_start, num_tests_end,
     flu_period = 60 # flu oscillation periods
     flu_series = (median_seasonal * np.ones_like(I) * 0.9 +
                   np.sin(np.arange(N_days) * 2 * np.pi / flu_period) * 0.1)
-    
+
     # Now, we figure out how testing scales, and positives scale with it.
     new_cases = -np.diff(S)
     new_cases = np.concatenate((np.array([country.initial_infections]), new_cases))
     total_eligibles = (flu_series + new_cases).astype(int)
-    total_infected = new_cases.astype(int)
+    total_daily_infected = new_cases.astype(int)
 
     num_tests= np.linspace(num_tests_start, num_tests_end, num=N_days).astype(int)
 
-    num_positives = np.random.hypergeometric(ngood=total_infected,
+    num_positives = np.random.hypergeometric(ngood=total_daily_infected,
                                              nbad=total_eligibles,
                                              nsample=np.minimum(num_tests, total_eligibles))
 
-    return total_infected, total_eligibles, rt, num_tests, num_positives, new_cases
+    return I, total_eligibles, rt, num_tests, num_positives, total_daily_infected
     
 
 def set_up_parser():
@@ -168,7 +168,7 @@ def main():
         'T_t': (num_tests),
         'P_t': (num_positives),
         'pct_positive': 100. * num_positives/num_tests,
-        'Cases': new_cases,
+        'cases': new_cases,
     })
 
     results_df.to_csv(args.outfile)
