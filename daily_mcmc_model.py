@@ -17,6 +17,8 @@ from matplotlib import ticker
 from datetime import date
 from datetime import datetime
 
+from scipy.stats import kurtosis, skew
+
 from hypergeom import HyperGeometric
 
 
@@ -51,7 +53,8 @@ class MCMCModel(object):
             R_t_1 = pm.Deterministic('R_t_1', R_t + R_t_drift)
 
             # Now, take the new I_t_1
-            serial_interval = 5.2
+            # Effective serial_interval is basically 9, from empirical tests.
+            serial_interval = 9.
             gamma = 1/serial_interval
             dI_t = pm.Poisson('dI_t', mu=self.dI_t_mu)
             exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
@@ -66,7 +69,7 @@ class MCMCModel(object):
                                        observed=self.num_positive)
 
 
-            if self.verbose > 1:
+            if self.verbose > 2:
                 print('Built model, sampling...')
                 for RV in model.basic_RVs:
                     print(RV.name, RV.logp(model.test_point))
@@ -123,6 +126,9 @@ def create_and_run_models(args):
             print(i)
             print(f'R_t: {(R_t_mu, R_t_low, R_t_high)}')
             print(f'I_t: {(I_t_mu, I_t_low, I_t_high)}')
+            if verbose > 1:
+                print(f'R_t_sigma: {(np.std(R_t_1))}')
+                print('Skew, kurtosis: ', skew(R_t_1), kurtosis(R_t_1))
 
         R_t_mus.append(R_t_mu)
         R_t_highs.append(R_t_high)
