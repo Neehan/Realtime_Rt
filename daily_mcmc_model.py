@@ -84,7 +84,8 @@ class MCMCModel(object):
 def create_and_run_models(args):
     verbose = args.verbose
     data = pd.read_csv(args.infile)
-    data = data[data.P_t >= args.cutoff]
+    data_start = data[data.P_t >= args.cutoff].index[0]
+    data = data.loc[index:]
     # Now, from the start date, we will project forward and
     # compute our Rts and Its.
     R_t_mu, R_t_sigma = args.rt_init_mu, args.rt_init_sigma
@@ -110,9 +111,11 @@ def create_and_run_models(args):
         R_t_1 = model.trace['R_t_1']
 
         R_t_mu = np.mean(R_t_1)
+        R_t_sigma = np.std(R_t_1)
+        I_t_mu = np.mean(I_t_1)
+
         R_t_bounds = az.hdi(R_t_1, 0.95)
         R_t_low, R_t_high = R_t_bounds[0], R_t_bounds[1]
-        I_t_mu = np.mean(I_t_1)
         I_t_bounds = az.hdi(I_t_1, 0.95)
         I_t_low, I_t_high = I_t_bounds[0], I_t_bounds[1]
 
