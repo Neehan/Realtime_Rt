@@ -63,11 +63,11 @@ class MCMCModel(object):
             # Effective serial_interval is basically 9, from empirical tests.
             serial_interval = 9.
             gamma = 1/serial_interval
-            log_dI_t = pm.Deterministic('log_dI_t', R_log_I_t[1])
+            log_dI_t = R_log_I_t[1]
             dI_t = pm.Deterministic('dI_t', pm.math.exp(log_dI_t))
-            exp_rate = pm.Deterministic('exp_rate', pm.math.exp((R_t_1 - 1) * gamma))
+            exp_rate = pm.math.exp((R_t_1 - 1) * gamma)
             # Restrict I_t to be nonzero
-            dI_t_1_mu = pm.math.minimum(pm.math.maximum(0.1, dI_t * exp_rate), self.num_positive)
+            dI_t_1_mu = pm.math.maximum(0.1, dI_t * exp_rate)
             dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
