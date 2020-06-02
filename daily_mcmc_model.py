@@ -25,7 +25,8 @@ from hypergeom import HyperGeometric
 class MCMCModel(object):
     def __init__(self, region, num_positive, num_tests,
                  last_tests, last_positives,
-                 R_log_I_mu, R_log_I_cov, N_t, N_t_1, use_real_nt=False,
+                 R_log_I_mu, R_log_I_cov, 
+                 N_t, N_t_1, fixed_N_t = 100_000, use_real_nt=False,
                  R_t_drift = 0.05, verbose=1, extra_evidence=True):
 
         # Just for identification purposes
@@ -38,6 +39,8 @@ class MCMCModel(object):
         self.R_log_dI_mu = R_log_I_mu
         self.R_log_dI_cov = R_log_I_cov
         self.R_t_drift = R_t_drift
+
+        self.fixed_N_t = fixed_N_t
         self.N_t = N_t if use_real_nt else -1
         self.N_t_1 = N_t_1 if use_real_nt else -1   
         self.extra_evidence = extra_evidence     
@@ -71,14 +74,14 @@ class MCMCModel(object):
             dI_t_1 = pm.Poisson('dI_t_1', mu=dI_t_1_mu)
 
             # From here, find the expected number of positive cases
-            N_t_1 = 100_000 if self.N_t_1 == -1 else self.N_t_1 # For now, assume random tests among a large set.
+            N_t_1 = self.fixed_N_t if self.N_t_1 == -1 else self.N_t_1 # For now, assume random tests among a large set.
             positives = HyperGeometric(name='positives',
                                        N = N_t_1, n=self.num_tests, k=dI_t_1,
                                        observed=self.num_positive)
 
             if self.extra_evidence:
                 # Add this extra observation
-                N_t = 100_000 if self.N_t == -1 else self.N_t # For now, assume random tests among a large set.
+                N_t = self.fixed_N_t if self.N_t == -1 else self.N_t # For now, assume random tests among a large set.
                 yesterday_positives = HyperGeometric(name='yesterday_positives',
                                                     N = N_t, n=self.last_tests, k=dI_t,
                                                     observed=self.last_positives)
@@ -102,6 +105,8 @@ class MCMCModel(object):
 
 def create_and_run_models(args):
     verbose = args.verbose
+    if verbose:
+        print(vars(args))
     data = pd.read_csv(args.infile)
     data_start = data[data.P_t >= args.cutoff].index[0]
     data = data.loc[data_start:]
@@ -122,11 +127,11 @@ def create_and_run_models(args):
         day = data.iloc[i]
         yesterday = data.iloc[i-1]
         last_tests, last_positives = yesterday.T_t, yesterday.P_t
-        model = MCMCModel(args.infile, R_t_drift=args.R_t_drift,
+        model = MCMCModel(args.infile, R_t_drift=args.rt_drift,
                           num_positive=day.P_t, num_tests=day.T_t,
                           last_tests=last_tests, last_positives=last_positives,
-                          N_t_1=day.N_t, N_t=yesterday.N_t, 
-                          use_real_nt=args.real_nt,
+                          N_t_1=day.N_t, N_t=yesterday.N_t,
+                          use_real_nt=args.real_nt, fixed_N_t=args.fixed_nt,
                           R_log_I_mu=R_log_I_mu, R_log_I_cov=R_log_I_cov,
                           verbose=args.verbose).run(
                               chains=args.chains,
@@ -171,6 +176,18 @@ def create_and_run_models(args):
         I_t_highs.append(I_t_high)
         I_t_lows.append(I_t_low)
 
+        if args.save_every:
+            results = pd.DataFrame({
+                'R_t_mean': np.array(R_t_mus),
+                'R_t_low': np.array(R_t_lows),
+                'R_t_high': np.array(R_t_highs),
+                'I_t_mean': np.array(I_t_mus),
+                'I_t_low': np.array(I_t_lows),
+                'I_t_high': np.array(I_t_highs),
+            })
+
+            results.to_csv(args.outfile)
+
     results = pd.DataFrame({
         'R_t_mean': np.array(R_t_mus),
         'R_t_low': np.array(R_t_lows),
@@ -185,12 +202,12 @@ def create_and_run_models(args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Rt estimation with MCMC')
+    parser = argparse.ArgumentParser(description='R_t estimation with MCMC')
 
     parser.add_argument(
         '--infile',
         type=str,
-        default='synthetic_data/new_testing/bd.csv',
+        default='synthetic_data/new_testing/bd_smooth.csv',
         help='File from which to read P_t and T_t (default: %(default)s)',
         nargs='?',
     )
@@ -214,19 +231,31 @@ def parse_args():
     parser.add_argument(
         '--rt_init_mu',
         type=float,
-        default=3.5,
+        default=2.0,
         help='Initial mean for Rt on day 0.  (default: %(default)f)'
     )
 
     parser.add_argument(
         '--real_nt',
-        type=bool,
-        default=False,
+        action='store_true',
         help='Use the real N(t) value for synthetic data. (default: False)'
     )
 
     parser.add_argument(
-        '--R_t_drift',
+        '--save_every',
+        action='store_true',
+        help='Save at every step (default: False)'
+    )
+
+    parser.add_argument(
+        '--fixed_nt',
+        type=int,
+        default=10_000_000,
+        help='Fixed N_t to use for estimation (default: %(default)d)'
+    )
+
+    parser.add_argument(
+        '--rt_drift',
         type=float,
         default=0.05,
         help='Variance of drifting R_t (default: %(default)f)'
@@ -235,14 +264,14 @@ def parse_args():
     parser.add_argument(
         '--rt_init_sigma',
         type=float,
-        default=3.,
+        default=0.5,
         help='Initial variance for Rt on day 0.  (default: %(default)f)'
     )
 
     parser.add_argument(
         '--cutoff', type=int,
         help='Minimum number of positive tests from which to start inference (default: %(default)d)',
-        nargs='?', default=25
+        nargs='?', default=10
     )
 
     parser.add_argument(
@@ -260,21 +289,21 @@ def parse_args():
     parser.add_argument(
         '--tune', type=int,
         help='Number of steps to tune MCMC for (default: %(default)d)',
-        nargs='?', default=500
+        nargs='?', default=1_000
     )
 
     parser.add_argument(
         '--draw', type=int,
         help='Number of samples to draw using MCMC (default: %(default)d)',
-        nargs='?', default=500
+        nargs='?', default=1_000
     )
 
     parser.add_argument(
         '--outfile',
         type=str,
-        help='Output file to save data to. \nFormat should be <country>_<last date of observation>.csv (default: %(default)s)',
+        help='Output file to save data to. (default: %(default)s)',
         nargs='?',
-        default='rt/synthetic/bd.csv',
+        default='/tmp/bd.csv',
     )
 
     return parser.parse_args()
