@@ -54,7 +54,7 @@ class MCMCModel(object):
             R_log_I_t = pm.MvNormal('R_log_I_t', 
                                     mu=self.R_log_dI_mu, 
                                     cov=self.R_log_dI_cov,
-                                    shape=2)
+                                    shape=2, testval=self.R_log_dI_mu)
             R_t = pm.Deterministic('R_t', R_log_I_t[0])
             R_t_drift = pm.Normal('R_t_drift', mu=0, sigma=self.R_t_drift)
             R_t_1 = pm.Deterministic('R_t_1', R_t + R_t_drift)
@@ -137,12 +137,12 @@ def create_and_run_models(args):
 
         I_t = model.trace['dI_t']
         I_t_1 = model.trace['dI_t_1']        
-        log_I_t_1 = np.log(I_t_1)
+        log_I_t_1 = np.log(I_t_1 + 1e-9)
         R_t_1 = model.trace['R_t_1']
 
         R_log_I_t = np.stack((R_t_1, log_I_t_1))
         R_log_I_mu = np.mean(R_log_I_t, axis=1)
-        R_log_I_cov = np.cov(R_log_I_t)
+        R_log_I_cov = np.nan_to_num(np.cov(R_log_I_t), nan=0.01)
 
         R_t_mu = np.mean(R_t_1)
         R_t_bounds = az.hdi(R_t_1, 0.95)
@@ -162,6 +162,7 @@ def create_and_run_models(args):
                 print(f'Sample R_t: {R_t_1[:10]}')
                 print(f'Sample I_t: {I_t[:10]}')
                 print(f'Sample I_t_1: {I_t_1[:10]}')
+            print(R_log_I_cov)
 
         R_t_mus.append(R_t_mu)
         R_t_highs.append(R_t_high)
