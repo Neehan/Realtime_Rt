@@ -96,7 +96,7 @@ def generate(country_name, num_tests_start, num_tests_end,
     num_tests= np.linspace(num_tests_start, num_tests_end, num=N_days).astype(int)
 
     num_positives = np.random.hypergeometric(ngood=total_daily_infected,
-                                             nbad=total_eligibles,
+                                             nbad=total_eligibles - total_daily_infected,
                                              nsample=np.minimum(num_tests, total_eligibles))
 
     return I, total_eligibles, rt, num_tests, num_positives, total_daily_infected
