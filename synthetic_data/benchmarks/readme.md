@@ -1,3 +1,3 @@
 ## Pre-generated benchmark sets
 
-![Benchmark sets](benchmarks/benchmarks.png)
+![Benchmark sets](benchmarks.png)
