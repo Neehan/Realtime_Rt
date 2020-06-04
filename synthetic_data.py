@@ -19,8 +19,9 @@ def load_data():
     return ifr_data
 
 def generate(country_name, num_tests_start, num_tests_end, 
-             N_days = 180, lowest_rt=0.01, highest_rt=12,
-             base_rt=2.2, rt_var=0.05, smooth=False):
+             N_days = 180, lowest_rt=0.5, highest_rt=5,
+             base_rt=2.2, rt_var=0.05, smooth=False, 
+             test_increase='linear'):
     # Setting time to run until
     end_time = N_days
 
@@ -38,11 +39,16 @@ def generate(country_name, num_tests_start, num_tests_end,
     # rt constants
     beta_func = lambda country, rt: (gamma * rt / country.population)
 
-    def generate_rt_sequence(N=N_days, mean=base_rt, var=rt_var, seed=0):
+    def generate_rt_sequence(N=N_days, mean=base_rt, var=rt_var, seed=0,
+                             big_shifts = True, shift_number=4):
         # Generate rt as a random walk.
         start = np.random.normal(mean, 5*var)
         # Put a small downwards bias
         steps = np.random.normal(-0.003, var, N_days)
+        if big_shifts:
+            shifts = np.sort(np.random.choice(N_days, shift_number, replace=False))
+            steps[shifts[::2]] -= 1.1
+            steps[shifts[1::2]] += 1.1
         all_steps = np.concatenate((np.array([start]), steps))
         final_rt = np.clip(np.cumsum(all_steps), lowest_rt, highest_rt)
         return final_rt
@@ -93,7 +99,15 @@ def generate(country_name, num_tests_start, num_tests_end,
     total_eligibles = (flu_series + new_cases).astype(int)
     total_daily_infected = new_cases.astype(int)
 
-    num_tests= np.linspace(num_tests_start, num_tests_end, num=N_days).astype(int)
+    if test_increase == 'linear':
+        num_tests = np.linspace(num_tests_start, num_tests_end, num=N_days).astype(int)
+    elif test_increase == 'sigmoid':
+        sigmoid_range = np.linspace(-8, 12, num=N_days)
+        num_tests_sigmoid = (1. / (1. + np.exp(-sigmoid_range)))
+        num_tests = num_tests_start + ((num_tests_end - num_tests_start) * num_tests_sigmoid)
+        num_tests = num_tests.astype('int')
+    else:
+        raise ValueError('Testing strategy not found.')
 
     num_positives = np.random.hypergeometric(ngood=total_daily_infected,
                                              nbad=total_eligibles - total_daily_infected,
